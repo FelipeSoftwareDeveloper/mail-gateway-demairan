@@ -58,7 +58,8 @@ function build_mailer(array $account): PHPMailer
 }
 
 /**
- * Envia a mensagem. $msg: to[], cc[], bcc[], reply_to, subject, html, text.
+ * Envia a mensagem. $msg: to[], cc[], bcc[], reply_to, subject, html, text, from_name, headers{}.
+ * from_name vazio: vale o nome cadastrado na conta SMTP.
  * @return array{ok: bool, message_id: ?string, error: ?string}
  */
 function smtp_send(array $account, array $msg): array
@@ -66,7 +67,11 @@ function smtp_send(array $account, array $msg): array
     $mail = null;
     try {
         $mail = build_mailer($account);
-        $mail->setFrom($account['email'], (string) $account['from_name']);
+        $fromName = (string) ($msg['from_name'] ?? '');
+        $mail->setFrom($account['email'], $fromName !== '' ? $fromName : (string) $account['from_name']);
+        foreach ($msg['headers'] ?? [] as $name => $value) {
+            $mail->addCustomHeader($name, $value);
+        }
         foreach ($msg['to'] as $addr) {
             $mail->addAddress($addr);
         }

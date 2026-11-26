@@ -66,6 +66,51 @@ function extract_address(string $from): string
     return trim($from);
 }
 
+/** O nome de "Nome <email@x.com>" (sem aspas); vazio quando só veio o e-mail. */
+function extract_name(string $from): string
+{
+    if (!preg_match('/^(.*)<[^<>]+>\s*$/s', $from, $m)) {
+        return '';
+    }
+    $name = trim($m[1]);
+    if (strlen($name) >= 2 && $name[0] === '"' && $name[strlen($name) - 1] === '"') {
+        $name = stripcslashes(substr($name, 1, -1));
+    }
+    return trim($name);
+}
+
+/** Headers que a aplicação pode mandar: descadastro (RFC 8058), conversa (In-Reply-To/References) e os X- próprios. */
+const ALLOWED_HEADERS = ['list-unsubscribe', 'list-unsubscribe-post', 'in-reply-to', 'references'];
+const BLOCKED_X_HEADERS = ['x-mailer', 'x-originating-ip', 'x-priority'];
+
+/** @return array<string, string> */
+function parse_headers(mixed $value): array
+{
+    if ($value === null || $value === []) {
+        return [];
+    }
+    if (!is_array($value) || array_is_list($value)) {
+        throw new InvalidArgumentException('"headers" precisa ser um objeto {"Nome": "valor"}.');
+    }
+    if (count($value) > 10) {
+        throw new InvalidArgumentException('Máximo de 10 itens em "headers".');
+    }
+    $out = [];
+    foreach ($value as $name => $content) {
+        $name = (string) $name;
+        $lower = strtolower($name);
+        if (!preg_match('/^[A-Za-z0-9-]{1,64}$/', $name)
+            || (!in_array($lower, ALLOWED_HEADERS, true) && (!str_starts_with($lower, 'x-') || in_array($lower, BLOCKED_X_HEADERS, true)))) {
+            throw new InvalidArgumentException("Header \"{$name}\" não permitido.");
+        }
+        if (!is_string($content) || trim($content) === '' || strlen($content) > 998 || preg_match('/[\r\n\0]/', $content)) {
+            throw new InvalidArgumentException("Valor inválido no header \"{$name}\".");
+        }
+        $out[$name] = trim($content);
+    }
+    return $out;
+}
+
 // ---------------------------------------------------------------------
 // Contexto da requisição (vai para todos os logs)
 // ---------------------------------------------------------------------
@@ -235,6 +280,13 @@ try {
     if ($replyTo !== '' && !is_valid_email($replyTo)) {
         throw new InvalidArgumentException('Endereço inválido em "reply_to".');
     }
+    // Nome de exibição vindo do "from" ("Loja da Ana <avisos@...>"); sem nome, vale o da conta SMTP.
+    $fromName = is_string($from) ? extract_name($from) : '';
+    if ($fromName !== '' && (preg_match('/[\r\n\0<>]/', $fromName)
+        || (function_exists('mb_strlen') ? mb_strlen($fromName, 'UTF-8') : strlen($fromName)) > 100)) {
+        throw new InvalidArgumentException('Nome inválido em "from" (até 100 caracteres, sem quebras de linha nem < >).');
+    }
+    $headers = parse_headers($data['headers'] ?? null);
 } catch (InvalidArgumentException $e) {
     $logId = log_email($logBase + ['status' => 'failed', 'error_message' => 'Validação: ' . $e->getMessage()]);
     api_error(422, 'validation_error', $e->getMessage(), $logId);
@@ -247,6 +299,7 @@ $allRecipients = implode(', ', array_merge($to, $cc ? ['cc: ' . implode(', ', $c
 $result = smtp_send($row, [
     'to' => $to, 'cc' => $cc, 'bcc' => $bcc, 'reply_to' => $replyTo,
     'subject' => $subject, 'html' => $html, 'text' => $text,
+    'from_name' => $fromName, 'headers' => $headers,
 ]);
 
 $logId = log_email([
