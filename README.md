@@ -143,6 +143,23 @@ O nome de exibição vem sempre do cadastro da conta SMTP (não pode ser trocado
 | 502 | `smtp_error` | O Titan recusou ou não respondeu (detalhe em `message` e no log) |
 | 503 | `service_unavailable` | Banco indisponível |
 
+### ⚠️ Proteção anti-robô da HostGator
+
+Em alguns servidores da HostGator há uma proteção na frente do site. Uma requisição sem o cookie dela recebe **HTTP 409 Conflict** com este corpo, e não o JSON da API:
+
+```html
+<script>document.cookie = "humans_21909=1"; document.location.reload(true)</script>
+```
+
+Navegadores passam sozinhos, mas chamadas de servidor (PHP, Node, cURL) param aí. Há dois caminhos:
+
+1. **Definitivo:** abra um chamado na HostGator pedindo que desativem a "proteção contra robôs" (cookie `humans_`) no subdomínio do gateway, porque ele recebe chamadas de API de servidor para servidor.
+2. **Contorno imediato:** mande o cookie em toda chamada, com o header `Cookie: humans_21909=1`. O número (`21909`) muda de servidor para servidor: use o que aparece no script acima. Se um dia ele mudar, a API volta a responder 409 com o novo número.
+
+Para o exemplo de `curl` da tela de tokens já sair com o cookie, preencha `'hosting_cookie' => 'humans_21909=1'` dentro de `'api'` no `config.php`.
+
+Os exemplos abaixo já incluem o cookie. Quando a HostGator desativar a proteção, ele pode ser removido.
+
 ### Exemplos
 
 **cURL**
@@ -150,6 +167,7 @@ O nome de exibição vem sempre do cadastro da conta SMTP (não pode ser trocado
 curl -X POST https://mail.seudominio.com.br/api/send.php \
   -H "Authorization: Bearer tk_live_SEU_TOKEN" \
   -H "Content-Type: application/json" \
+  -H "Cookie: humans_21909=1" \
   -d '{"from":"avisos@demaria.com.br","to":"cliente@exemplo.com","subject":"Teste","html":"<p>Olá!</p>"}'
 ```
 
@@ -163,6 +181,7 @@ curl_setopt_array($ch, [
     CURLOPT_HTTPHEADER => [
         'Authorization: Bearer ' . getenv('MAIL_GATEWAY_TOKEN'),
         'Content-Type: application/json',
+        'Cookie: humans_21909=1', // proteção anti-robô da HostGator
     ],
     CURLOPT_POSTFIELDS => json_encode([
         'from' => 'avisos@demaria.com.br',
@@ -182,6 +201,7 @@ const res = await fetch('https://mail.seudominio.com.br/api/send.php', {
   headers: {
     Authorization: `Bearer ${process.env.MAIL_GATEWAY_TOKEN}`,
     'Content-Type': 'application/json',
+    Cookie: 'humans_21909=1', // proteção anti-robô da HostGator
   },
   body: JSON.stringify({ to: 'cliente@exemplo.com', subject: 'Teste', text: 'Olá!' }),
 });
@@ -214,6 +234,8 @@ const data = await res.json();
 
 ## 5. Problemas comuns
 
+- **A API responde 409 com `<script>document.cookie = "humans_...` em vez de JSON** — é a proteção anti-robô da HostGator. Veja a seção "Proteção anti-robô da HostGator" acima.
+- **O subdomínio não abre ("não foi possível encontrar o servidor")** — se o DNS do domínio estiver na Cloudflare, criar o subdomínio no cPanel não basta: crie também um registro A na Cloudflare apontando para o IP do servidor da HostGator (o mesmo dos outros subdomínios que já funcionam).
 - **Toda chamada retorna 401 com token correto** — o Apache está removendo o `Authorization`. Confirme que o `.htaccess` da raiz foi enviado (arquivos que começam com ponto ficam ocultos: no Gerenciador de Arquivos, **Configurações → Mostrar arquivos ocultos**). Como alternativa, envie o token no header `X-Api-Key: tk_live_...`.
 - **"SMTP Error: Could not authenticate"** — senha errada, ou a caixa no Titan está sem acesso a apps de terceiros. Teste com o botão **Testar** em Contas SMTP.
 - **Timeout na porta 465** — tente 587 com STARTTLS. Algumas hospedagens bloqueiam SMTP externo; nesse caso, abra um chamado na HostGator pedindo liberação de saída para `smtp.titan.email` nas portas 465/587.

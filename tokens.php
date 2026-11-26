@@ -65,6 +65,13 @@ $endpoint = (is_https() ? 'https://' : 'http://')
     . preg_replace('/[^A-Za-z0-9.\-:\[\]]/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'seu-dominio.com.br'))
     . rtrim(str_replace('\\', '/', dirname((string) ($_SERVER['SCRIPT_NAME'] ?? '/'))), '/') . '/api/send.php';
 
+// Cookie da proteção anti-robô da HostGator (api.hosting_cookie no config.php).
+// Só nome=valor com caracteres seguros, para não quebrar o comando de exemplo.
+$hostingCookie = (string) config('api.hosting_cookie', '');
+if (!preg_match('/^[A-Za-z0-9_\-]+=[A-Za-z0-9_\-]+$/', $hostingCookie)) {
+    $hostingCookie = '';
+}
+
 render_header('Tokens de API', 'tokens');
 page_head('Tokens de API', 'Cada token pertence a um projeto e só envia como uma conta SMTP.');
 
@@ -80,7 +87,8 @@ if ($newToken): ?>
   <pre class="codeblock mt-4" id="curl-example">curl -X POST <?= e($endpoint) ?> \
   -H "Authorization: Bearer <?= e($newToken['token']) ?>" \
   -H "Content-Type: application/json" \
-  -d '{"from":"<?= e($newToken['email']) ?>","to":"cliente@exemplo.com","subject":"Teste","html":"&lt;p&gt;Olá!&lt;/p&gt;","text":"Olá!"}'</pre>
+<?php if ($hostingCookie !== ''): ?>  -H "Cookie: <?= e($hostingCookie) ?>" \
+<?php endif; ?>  -d '{"from":"<?= e($newToken['email']) ?>","to":"cliente@exemplo.com","subject":"Teste","html":"&lt;p&gt;Olá!&lt;/p&gt;","text":"Olá!"}'</pre>
 </section>
 <?php endif; ?>
 

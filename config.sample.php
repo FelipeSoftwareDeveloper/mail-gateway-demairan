@@ -52,6 +52,12 @@ return [
         'auth_fail_limit'          => 20,      // tentativas inválidas por IP...
         'auth_fail_window_minutes' => 15,      // ...nesta janela -> HTTP 429
         'smtp_timeout'             => 20,      // segundos
+
+        // Proteção anti-robô da HostGator: se a API responder 409 com
+        // <script>document.cookie = "humans_XXXXX=1"...</script>, coloque aqui
+        // 'humans_XXXXX=1' para o exemplo de curl da tela de tokens já sair com
+        // o cookie. Deixe null quando a HostGator desativar a proteção.
+        'hosting_cookie'           => null,
     ],
 
     'logs' => [
