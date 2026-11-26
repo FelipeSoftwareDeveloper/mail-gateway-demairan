@@ -1,0 +1,9 @@
+Coloque aqui a pasta "src" do PHPMailer, ficando assim:
+
+lib/PHPMailer/src/Exception.php
+lib/PHPMailer/src/PHPMailer.php
+lib/PHPMailer/src/SMTP.php
+(os demais arquivos da pasta src podem vir juntos, sem problema)
+
+Download: https://github.com/PHPMailer/PHPMailer/releases (arquivo "Source code (zip)")
+Passo a passo completo no README.md, seção "PHPMailer".

@@ -1,0 +1,29 @@
+# Demairan Mail Gateway — Apache (HostGator / cPanel)
+
+Options -Indexes
+DirectoryIndex index.php
+
+# Repassa o header Authorization ao PHP (o CGI/FastCGI da HostGator costuma removê-lo)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # Opcional: forçar HTTPS no domínio inteiro (descomente)
+    # RewriteCond %{HTTPS} off
+    # RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>
+<IfModule mod_setenvif.c>
+    SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+</IfModule>
+
+# Bloqueia arquivos sensíveis
+<FilesMatch "^(config\.php|config\.sample\.php|database\.sql|README\.md|composer\.(json|lock)|\.env.*|.*\.log)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
