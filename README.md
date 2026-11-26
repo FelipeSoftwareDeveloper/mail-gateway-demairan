@@ -212,7 +212,66 @@ const data = await res.json();
 
 ---
 
-## 4. Segurança implementada
+## 4. Conectar o Claude (MCP)
+
+O endpoint `POST /mcp.php` é um servidor MCP (Model Context Protocol, transporte Streamable HTTP). Com ele, o Claude consulta e administra o gateway.
+
+### 4.1 Ativar
+1. **Instalação feita antes desta versão:** no phpMyAdmin, aba **SQL**, rode o conteúdo de `migrations/002_mcp.sql`. Instalações novas já recebem as tabelas pelo `database.sql`.
+2. No painel, abra **Acesso MCP** e gere uma chave (`mcp_…`):
+   - **Somente leitura:** status, listas de projetos, contas, tokens e logs, e teste de conta SMTP.
+   - **Leitura e escrita:** também cadastra projetos, contas SMTP e tokens, e revoga tokens.
+3. A chave aparece uma única vez. A tela já mostra os comandos de conexão prontos.
+
+### 4.2 Claude Code
+```bash
+claude mcp add --transport http demairan-mail https://mail-gateway.demairan.com.br/mcp.php \
+  --header "Authorization: Bearer mcp_SUA_CHAVE" \
+  --header "Cookie: humans_21909=1"
+```
+O header `Cookie` só é necessário enquanto a proteção anti-robô da HostGator estiver ativa (veja a seção 3).
+
+### 4.3 Claude Desktop
+O Desktop conecta servidores remotos pelo `mcp-remote` (precisa de Node.js). Em `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "demairan-mail": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mail-gateway.demairan.com.br/mcp.php",
+               "--header", "Authorization:${MCP_AUTH}",
+               "--header", "Cookie:${MCP_COOKIE}"],
+      "env": { "MCP_AUTH": "Bearer mcp_SUA_CHAVE", "MCP_COOKIE": "humans_21909=1" }
+    }
+  }
+}
+```
+
+> **claude.ai (web):** conectores personalizados do claude.ai usam OAuth e não deixam enviar headers como o cookie da HostGator. Por isso esse cliente não é suportado nesta versão.
+
+### 4.4 Ferramentas
+
+| Ferramenta | Permissão | O que faz |
+| --- | --- | --- |
+| `get_status` | leitura | Envios e falhas de hoje, bloqueios em 24h, totais e série de 7 dias |
+| `list_projects` | leitura | Projetos com tokens ativos e total enviado |
+| `list_smtp_accounts` | leitura | Contas remetentes (senhas nunca são retornadas) |
+| `test_smtp_account` | leitura | Testa login no SMTP sem enviar e-mail |
+| `list_tokens` | leitura | Tokens (só o prefixo), com filtro por status e projeto |
+| `search_logs` | leitura | Busca por status, projeto, token, texto e período |
+| `get_log` | leitura | Detalhe completo de um registro |
+| `create_project` | escrita | Cadastra projeto |
+| `create_smtp_account` | escrita | Cadastra caixa do Titan (senha criptografada) |
+| `create_token` | escrita | Gera token de envio; o valor completo aparece só nessa resposta |
+| `revoke_token` | escrita | Revoga um token na hora |
+
+Toda ação de escrita fica registrada em **Acesso MCP → Ações feitas pelo Claude**, com argumentos (sem senha), resultado e IP.
+
+**Atenção:** ao cadastrar uma conta SMTP ou gerar um token pelo Claude, a senha ou o token passa pela conversa com o Claude. Se preferir que isso não aconteça, faça esses cadastros pelo painel.
+
+---
+
+## 5. Segurança implementada
 
 | Ponto | Como |
 | --- | --- |
@@ -227,12 +286,13 @@ const data = await res.json();
 | CSRF | Token por sessão em todo formulário, comparado com `hash_equals`; logout só por POST |
 | XSS | Toda saída passa por `htmlspecialchars`; CSP sem `unsafe-inline`; corpo dos e-mails no log exibido como texto |
 | Header injection | Quebras de linha rejeitadas em e-mails, assunto e nome de exibição |
-| Arquivos internos | `.htaccess` bloqueia `app/`, `lib/`, `cron/`, `config.php`, `database.sql` |
+| Arquivos internos | `.htaccess` bloqueia `app/`, `lib/`, `cron/`, `migrations/`, `config.php` e arquivos `.sql` |
 | Cabeçalhos | `X-Frame-Options`, `nosniff`, `Referrer-Policy`, HSTS sob HTTPS, `Cache-Control: no-store` |
+| Acesso MCP | Chaves separadas dos tokens de envio, salvas como SHA-256; escopo leitura ou escrita; revogação imediata; auditoria das escritas; `Origin` validado contra DNS rebinding; força bruta limitada por IP |
 
 ---
 
-## 5. Problemas comuns
+## 6. Problemas comuns
 
 - **A API responde 409 com `<script>document.cookie = "humans_...` em vez de JSON** — é a proteção anti-robô da HostGator. Veja a seção "Proteção anti-robô da HostGator" acima.
 - **O subdomínio não abre ("não foi possível encontrar o servidor")** — se o DNS do domínio estiver na Cloudflare, criar o subdomínio no cPanel não basta: crie também um registro A na Cloudflare apontando para o IP do servidor da HostGator (o mesmo dos outros subdomínios que já funcionam).

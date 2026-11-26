@@ -119,6 +119,41 @@ CREATE TABLE IF NOT EXISTS email_logs (
     CONSTRAINT fk_logs_smtp    FOREIGN KEY (smtp_account_id) REFERENCES smtp_accounts (id) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ---------------------------------------------------------------------
+-- Acesso MCP (Claude): chaves de administração e auditoria
+-- (mesmo conteúdo de migrations/002_mcp.sql)
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS mcp_keys (
+    id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    name          VARCHAR(120) NOT NULL,
+    key_hash      CHAR(64)     NOT NULL,
+    key_prefix    VARCHAR(32)  NOT NULL,
+    scope         ENUM('read','write') NOT NULL DEFAULT 'read',
+    status        ENUM('active','revoked') NOT NULL DEFAULT 'active',
+    created_by    INT UNSIGNED NULL,
+    last_used_at  DATETIME     NULL,
+    last_used_ip  VARCHAR(45)  NULL,
+    revoked_at    DATETIME     NULL,
+    created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_mcp_keys_hash (key_hash),
+    CONSTRAINT fk_mcp_keys_admin FOREIGN KEY (created_by) REFERENCES admins (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS mcp_audit (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    key_id      INT UNSIGNED NULL,
+    tool        VARCHAR(64)  NOT NULL,
+    arguments   TEXT         NULL,
+    success     TINYINT(1)   NOT NULL,
+    message     VARCHAR(1000) NULL,
+    origin_ip   VARCHAR(45)  NOT NULL,
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_mcp_audit_created (created_at),
+    CONSTRAINT fk_mcp_audit_key FOREIGN KEY (key_id) REFERENCES mcp_keys (id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- O primeiro administrador é criado pelo navegador em /install.php

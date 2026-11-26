@@ -4,14 +4,7 @@ require __DIR__ . '/app/bootstrap.php';
 
 require_admin();
 
-$log = db_one(
-    'SELECT l.*, p.name AS project, t.name AS token_name, t.token_prefix, t.status AS token_status
-       FROM email_logs l
-       LEFT JOIN projects p ON p.id = l.project_id
-       LEFT JOIN api_tokens t ON t.id = l.token_id
-      WHERE l.id = ?',
-    [query_int('id')]
-);
+$log = log_find(query_int('id'));
 if (!$log) {
     http_response_code(404);
     flash('error', 'Registro não encontrado.');

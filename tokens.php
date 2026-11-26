@@ -9,32 +9,18 @@ if (is_post()) {
     $id = (int) post('id');
 
     if ($action === 'create') {
-        $name = post('name');
-        $projectId = (int) post('project_id');
-        $smtpId = (int) post('smtp_account_id');
-        $errors = [];
-        if ($name === '' || mb_strlen($name) > 120) $errors[] = 'Informe o nome do token (até 120 caracteres).';
-        if (!db_val('SELECT id FROM projects WHERE id = ?', [$projectId])) $errors[] = 'Escolha um projeto.';
-        $account = db_one('SELECT id, email, is_active FROM smtp_accounts WHERE id = ?', [$smtpId]);
-        if (!$account) $errors[] = 'Escolha uma conta SMTP.';
-        elseif (!$account['is_active']) $errors[] = 'A conta SMTP escolhida está desativada.';
-
-        if ($errors) {
-            foreach ($errors as $err) flash('error', $err);
-            redirect('tokens.php');
+        try {
+            $created = api_token_create(post('name'), (int) post('project_id'), (int) post('smtp_account_id'));
+            // O token completo fica na sessão só até a próxima página ser exibida.
+            $_SESSION['_new_token'] = $created;
+        } catch (InvalidArgumentException $e) {
+            flash('error', $e->getMessage());
         }
-        $t = generate_api_token();
-        $tokenId = db_insert(
-            'INSERT INTO api_tokens (name, token_hash, token_prefix, project_id, smtp_account_id) VALUES (?, ?, ?, ?, ?)',
-            [$name, $t['hash'], $t['prefix'], $projectId, $smtpId]
-        );
-        // O token completo fica na sessão só até a próxima página ser exibida.
-        $_SESSION['_new_token'] = ['id' => $tokenId, 'token' => $t['token'], 'name' => $name, 'email' => $account['email']];
         redirect('tokens.php');
     }
 
     if ($action === 'revoke') {
-        db_run("UPDATE api_tokens SET status = 'revoked', revoked_at = NOW() WHERE id = ? AND status = 'active'", [$id]);
+        api_token_revoke($id);
         flash('success', 'Token revogado. Novas requisições com ele recebem erro 401 imediatamente.');
     } elseif ($action === 'delete') {
         $n = db_run("DELETE FROM api_tokens WHERE id = ? AND status = 'revoked'", [$id])->rowCount();
@@ -47,17 +33,7 @@ $newToken = $_SESSION['_new_token'] ?? null;
 unset($_SESSION['_new_token']);
 
 $filter = query('status');
-$where = in_array($filter, ['active', 'revoked'], true) ? 'WHERE t.status = ?' : '';
-$tokens = db_all(
-    "SELECT t.id, t.name, t.token_prefix, t.status, t.last_used_at, t.revoked_at, t.created_at,
-            p.name AS project, s.email AS smtp_email, s.is_active AS smtp_active
-       FROM api_tokens t
-       JOIN projects p ON p.id = t.project_id
-       JOIN smtp_accounts s ON s.id = t.smtp_account_id
-       {$where}
-      ORDER BY t.status = 'active' DESC, t.created_at DESC",
-    $where ? [$filter] : []
-);
+$tokens = api_tokens_list($filter);
 $projects = db_all('SELECT id, name FROM projects ORDER BY name');
 $accounts = db_all('SELECT id, email, from_name FROM smtp_accounts WHERE is_active = 1 ORDER BY email');
 

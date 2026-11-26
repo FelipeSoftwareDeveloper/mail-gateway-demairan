@@ -13,52 +13,16 @@ $f = [
     'to'         => query('to'),
 ];
 
-$where = [];
-$params = [];
-if (in_array($f['status'], ['sent', 'failed', 'unauthorized'], true)) {
-    $where[] = 'l.status = ?';
-    $params[] = $f['status'];
-}
-if ($f['project_id']) {
-    $where[] = 'l.project_id = ?';
-    $params[] = $f['project_id'];
-}
-if ($f['token_id']) {
-    $where[] = 'l.token_id = ?';
-    $params[] = $f['token_id'];
-}
-if ($f['q'] !== '') {
-    $like = '%' . addcslashes(mb_substr($f['q'], 0, 190), '%_\\') . '%';
-    $where[] = '(l.recipient_email LIKE ? OR l.subject LIKE ? OR l.sender_email LIKE ? OR l.origin_ip LIKE ?)';
-    array_push($params, $like, $like, $like, $like);
-}
-if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $f['from'])) {
-    $where[] = 'l.created_at >= ?';
-    $params[] = $f['from'] . ' 00:00:00';
-}
-if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $f['to'])) {
-    $where[] = 'l.created_at <= ?';
-    $params[] = $f['to'] . ' 23:59:59';
-}
-$whereSql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
-
 $perPage = 50;
-$total = (int) db_val("SELECT COUNT(*) FROM email_logs l {$whereSql}", $params);
+$page = max(1, query_int("page", 1));
+$result = logs_query($f, $perPage, ($page - 1) * $perPage);
+$total = $result["total"];
 $pages = max(1, (int) ceil($total / $perPage));
-$page = min(max(1, query_int('page', 1)), $pages);
-$offset = ($page - 1) * $perPage;
-
-$logs = db_all(
-    "SELECT l.id, l.status, l.sender_email, l.recipient_email, l.subject, l.origin_ip, l.error_message, l.created_at,
-            p.name AS project, t.name AS token_name, t.token_prefix
-       FROM email_logs l
-       LEFT JOIN projects p ON p.id = l.project_id
-       LEFT JOIN api_tokens t ON t.id = l.token_id
-       {$whereSql}
-      ORDER BY l.id DESC
-      LIMIT {$perPage} OFFSET {$offset}",
-    $params
-);
+if ($page > $pages) {
+    $page = $pages;
+    $result = logs_query($f, $perPage, ($page - 1) * $perPage);
+}
+$logs = $result["rows"];
 
 $projects = db_all('SELECT id, name FROM projects ORDER BY name');
 $tokens = db_all('SELECT id, name, token_prefix FROM api_tokens ORDER BY name');

@@ -60,6 +60,12 @@ return [
         'hosting_cookie'           => null,
     ],
 
+    'mcp' => [
+        // Origens de navegador autorizadas a chamar /mcp.php. Clientes MCP
+        // (Claude Code, mcp-remote) não enviam Origin; deixe vazio.
+        'allowed_origins' => [],
+    ],
+
     'logs' => [
         'body'           => 'preview', // 'preview', 'full' ou 'none'
         'preview_chars'  => 500,

@@ -10,10 +10,20 @@ if (is_post()) {
     $name = post('name');
     $description = post('description');
 
-    if ($action === 'create' || $action === 'update') {
+    if ($action === 'create') {
+        try {
+            project_create($name, $description);
+            flash('success', 'Projeto criado.');
+        } catch (InvalidArgumentException $e) {
+            flash('error', $e->getMessage());
+        }
+        redirect('projects.php');
+    }
+
+    if ($action === 'update') {
         if ($name === '' || mb_strlen($name) > 120) {
             flash('error', 'Informe o nome do projeto (até 120 caracteres).');
-            redirect($action === 'update' ? 'projects.php?edit=' . $id : 'projects.php');
+            redirect('projects.php?edit=' . $id);
         }
         if (mb_strlen($description) > 2000) {
             $description = mb_substr($description, 0, 2000);
@@ -21,15 +31,10 @@ if (is_post()) {
         $dup = db_val('SELECT id FROM projects WHERE name = ? AND id <> ?', [$name, $id]);
         if ($dup) {
             flash('error', 'Já existe um projeto com esse nome.');
-            redirect($action === 'update' ? 'projects.php?edit=' . $id : 'projects.php');
+            redirect('projects.php?edit=' . $id);
         }
-        if ($action === 'create') {
-            db_run('INSERT INTO projects (name, description) VALUES (?, ?)', [$name, $description !== '' ? $description : null]);
-            flash('success', 'Projeto criado.');
-        } else {
-            db_run('UPDATE projects SET name = ?, description = ? WHERE id = ?', [$name, $description !== '' ? $description : null, $id]);
-            flash('success', 'Projeto atualizado.');
-        }
+        db_run('UPDATE projects SET name = ?, description = ? WHERE id = ?', [$name, $description !== '' ? $description : null, $id]);
+        flash('success', 'Projeto atualizado.');
     } elseif ($action === 'delete') {
         $tokens = (int) db_val('SELECT COUNT(*) FROM api_tokens WHERE project_id = ?', [$id]);
         if ($tokens > 0) {
@@ -47,13 +52,7 @@ if ($editId = query_int('edit')) {
     $editing = db_one('SELECT * FROM projects WHERE id = ?', [$editId]);
 }
 
-$projects = db_all(
-    "SELECT p.*,
-            (SELECT COUNT(*) FROM api_tokens t WHERE t.project_id = p.id AND t.status = 'active') AS active_tokens,
-            (SELECT COUNT(*) FROM email_logs l WHERE l.project_id = p.id AND l.status = 'sent') AS sent_total,
-            (SELECT MAX(l.created_at) FROM email_logs l WHERE l.project_id = p.id) AS last_activity
-       FROM projects p ORDER BY p.name"
-);
+$projects = projects_list();
 
 render_header('Projetos', 'projects');
 page_head('Projetos', 'Agrupe os tokens por aplicação: ERP, site, app mobile.');

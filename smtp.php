@@ -4,56 +4,28 @@ require __DIR__ . '/app/bootstrap.php';
 
 require_admin();
 
-function smtp_form_values(): array
-{
-    return [
-        'email'      => strtolower(post('email')),
-        'from_name'  => post('from_name'),
-        'smtp_host'  => strtolower(post('smtp_host', 'smtp.titan.email')),
-        'smtp_port'  => (int) post('smtp_port', '465'),
-        'encryption' => post('encryption', 'ssl'),
-        'is_active'  => isset($_POST['is_active']) ? 1 : 0,
-    ];
-}
-
-function smtp_validate(array $v, bool $passwordRequired, string $password): array
-{
-    $errors = [];
-    if (!is_valid_email($v['email'])) $errors[] = 'E-mail inválido.';
-    if (mb_strlen($v['from_name']) > 120 || preg_match('/[\r\n]/', $v['from_name'])) $errors[] = 'Nome de exibição inválido (até 120 caracteres).';
-    if (!preg_match('/^(?=.{1,190}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/', $v['smtp_host'])) $errors[] = 'Servidor SMTP inválido.';
-    if ($v['smtp_port'] < 1 || $v['smtp_port'] > 65535) $errors[] = 'Porta inválida.';
-    if (!in_array($v['encryption'], ['ssl', 'tls'], true)) $errors[] = 'Criptografia deve ser SSL ou TLS.';
-    if ($passwordRequired && $password === '') $errors[] = 'Informe a senha da caixa de e-mail.';
-    if (strlen($password) > 500) $errors[] = 'Senha longa demais.';
-    return $errors;
-}
-
 if (is_post()) {
     $action = post('action');
     $id = (int) post('id');
     $password = (string) ($_POST['smtp_password'] ?? '');
 
     if ($action === 'create' || $action === 'update') {
-        $v = smtp_form_values();
-        $errors = smtp_validate($v, $action === 'create', $password);
-        if (db_val('SELECT id FROM smtp_accounts WHERE email = ? AND id <> ?', [$v['email'], $id])) {
-            $errors[] = 'Esse e-mail já está cadastrado.';
-        }
-        if (!app_key_is_valid()) {
-            $errors[] = 'A app_key do config.php está ausente ou inválida.';
-        }
+        $v = smtp_normalize([
+            'email'      => post('email'),
+            'from_name'  => post('from_name'),
+            'smtp_host'  => post('smtp_host'),
+            'smtp_port'  => post('smtp_port'),
+            'encryption' => post('encryption', 'ssl'),
+            'is_active'  => isset($_POST['is_active']),
+        ]);
+        $errors = smtp_validate($v, $action === 'create', $password, $action === 'update' ? $id : 0);
         if ($errors) {
             foreach ($errors as $err) flash('error', $err);
             $_SESSION['_old_smtp'] = $v;
             redirect($action === 'update' ? 'smtp.php?edit=' . $id : 'smtp.php');
         }
         if ($action === 'create') {
-            db_run(
-                'INSERT INTO smtp_accounts (email, from_name, smtp_password_encrypted, smtp_host, smtp_port, encryption, is_active)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)',
-                [$v['email'], $v['from_name'], encrypt_secret($password), $v['smtp_host'], $v['smtp_port'], $v['encryption'], $v['is_active']]
-            );
+            smtp_create($v, $password);
             flash('success', 'Conta SMTP cadastrada. Use "Testar" para validar a senha.');
         } else {
             db_run(
@@ -96,12 +68,7 @@ $old = $_SESSION['_old_smtp'] ?? null;
 unset($_SESSION['_old_smtp']);
 $f = $old ?? $editing ?? ['email' => '', 'from_name' => '', 'smtp_host' => 'smtp.titan.email', 'smtp_port' => 465, 'encryption' => 'ssl', 'is_active' => 1];
 
-$accounts = db_all(
-    "SELECT s.id, s.email, s.from_name, s.smtp_host, s.smtp_port, s.encryption, s.is_active, s.created_at,
-            (SELECT COUNT(*) FROM api_tokens t WHERE t.smtp_account_id = s.id AND t.status = 'active') AS active_tokens,
-            (SELECT MAX(l.created_at) FROM email_logs l WHERE l.smtp_account_id = s.id AND l.status = 'sent') AS last_sent
-       FROM smtp_accounts s ORDER BY s.email"
-);
+$accounts = smtp_list();
 
 render_header('Contas SMTP', 'smtp');
 page_head('Contas SMTP', 'Caixas do Titan Email que fazem os disparos. As senhas ficam criptografadas (AES-256-GCM).');

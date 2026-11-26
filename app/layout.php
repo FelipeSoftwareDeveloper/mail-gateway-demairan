@@ -23,6 +23,7 @@ function icon(string $name): string
         'moon'    => '<path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/>',
         'copy'    => '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
         'menu'    => '<path d="M3 6h18M3 12h18M3 18h18"/>',
+        'plug'    => '<path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"/>',
     ];
     return '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '
         . 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . ($paths[$name] ?? '') . '</svg>';
@@ -65,6 +66,7 @@ function render_header(string $title, string $active = ''): void
         'smtp'      => ['smtp.php', 'Contas SMTP', 'mail'],
         'tokens'    => ['tokens.php', 'Tokens de API', 'key'],
         'logs'      => ['logs.php', 'Logs', 'list'],
+        'mcp'       => ['mcp_keys.php', 'Acesso MCP', 'plug'],
         'admins'    => ['admins.php', 'Administradores', 'users'],
     ];
     render_head($title);

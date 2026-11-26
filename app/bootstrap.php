@@ -35,5 +35,6 @@ require APP_DIR . '/security.php';
 require APP_DIR . '/logger.php';
 require APP_DIR . '/mailer.php';
 require APP_DIR . '/layout.php';
+require APP_DIR . '/services.php';
 
 date_default_timezone_set((string) config('timezone', 'America/Sao_Paulo'));
