@@ -31,9 +31,9 @@ function api_respond(int $status, array $body): never
     exit;
 }
 
-function api_error(int $status, string $code, string $message, ?int $logId = null): never
+function api_error(int $status, string $code, string $message, ?int $logId = null, array $extra = []): never
 {
-    $body = ['success' => false, 'error' => ['code' => $code, 'message' => $message]];
+    $body = ['success' => false, 'error' => ['code' => $code, 'message' => $message] + $extra];
     if ($logId !== null) {
         $body['log_id'] = $logId;
     }
@@ -312,7 +312,11 @@ $logId = log_email([
 
 if (!$result['ok']) {
     error_log('[mail-gateway] falha SMTP (token ' . $ids['token_id'] . '): ' . $result['error']);
-    api_error(502, 'smtp_error', 'O servidor SMTP recusou o envio: ' . $result['error'], $logId);
+    // smtp_code (ex.: 550, 450) e smtp_code_ex (ex.: 5.1.1): a aplicação distingue recusa definitiva (5xx) de temporária (4xx).
+    api_error(502, 'smtp_error', 'O servidor SMTP recusou o envio: ' . $result['error'], $logId, array_filter([
+        'smtp_code'    => $result['smtp_code'] ?? null,
+        'smtp_code_ex' => $result['smtp_code_ex'] ?? null,
+    ], fn ($v) => $v !== null && $v !== ''));
 }
 
 api_respond(200, [

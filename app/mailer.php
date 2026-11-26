@@ -60,7 +60,8 @@ function build_mailer(array $account): PHPMailer
 /**
  * Envia a mensagem. $msg: to[], cc[], bcc[], reply_to, subject, html, text, from_name, headers{}.
  * from_name vazio: vale o nome cadastrado na conta SMTP.
- * @return array{ok: bool, message_id: ?string, error: ?string}
+ * smtp_code/smtp_code_ex: o código da última resposta de erro do servidor (com um destinatário, é a dele).
+ * @return array{ok: bool, message_id: ?string, error: ?string, smtp_code?: ?string, smtp_code_ex?: ?string}
  */
 function smtp_send(array $account, array $msg): array
 {
@@ -97,7 +98,9 @@ function smtp_send(array $account, array $msg): array
         return ['ok' => true, 'message_id' => $mail->getLastMessageID(), 'error' => null];
     } catch (MailerException $e) {
         $info = $mail instanceof PHPMailer && $mail->ErrorInfo !== '' ? $mail->ErrorInfo : $e->getMessage();
-        return ['ok' => false, 'message_id' => null, 'error' => $info];
+        $smtpError = $mail instanceof PHPMailer ? $mail->getSMTPInstance()->getError() : [];
+        return ['ok' => false, 'message_id' => null, 'error' => $info,
+            'smtp_code' => (string) ($smtpError['smtp_code'] ?? ''), 'smtp_code_ex' => (string) ($smtpError['smtp_code_ex'] ?? '')];
     } catch (Throwable $e) {
         return ['ok' => false, 'message_id' => null, 'error' => $e->getMessage()];
     }

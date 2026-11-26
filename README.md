@@ -141,7 +141,7 @@ O endereço do remetente vem sempre da conta SMTP do token. O nome de exibição
 | 422 | `validation_error` | Campo obrigatório faltando ou e-mail inválido |
 | 429 | `rate_limited` | Mais de `rate_limit_per_minute` envios do token por minuto |
 | 429 | `too_many_failed_attempts` | IP com muitas tentativas inválidas (bloqueio temporário) |
-| 502 | `smtp_error` | O Titan recusou ou não respondeu (detalhe em `message` e no log) |
+| 502 | `smtp_error` | O Titan recusou ou não respondeu (detalhe em `message` e no log). Quando o servidor respondeu, `smtp_code` (ex.: `550`, `450`) e `smtp_code_ex` (ex.: `5.1.1`) vêm junto em `error`: 5xx é recusa definitiva, 4xx é temporária |
 | 503 | `service_unavailable` | Banco indisponível |
 
 ### ⚠️ Proteção anti-robô da HostGator
