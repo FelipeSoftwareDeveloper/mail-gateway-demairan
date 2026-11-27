@@ -1,0 +1,9 @@
+---
+# Implantação pelo cPanel → Git™ Version Control → "Deploy HEAD Commit".
+# Copia o código para a pasta do subdomínio. Não toca em config.php nem em
+# lib/PHPMailer/src (que não estão no repositório) e não envia o install.php.
+deployment:
+  tasks:
+    - export DEPLOYPATH=$HOME/mail-gateway.demairan.com.br/
+    - /bin/cp -R app api assets cron lib migrations $DEPLOYPATH
+    - /bin/cp .htaccess index.php login.php logout.php projects.php smtp.php tokens.php logs.php log.php admins.php mcp.php mcp_keys.php $DEPLOYPATH
