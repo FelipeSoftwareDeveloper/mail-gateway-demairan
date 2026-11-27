@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 use PHPMailer\PHPMailer\Exception as MailerException;
 use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\SMTP;
 
 /**
  * Carrega o PHPMailer de vendor/ (Composer) ou de lib/PHPMailer/src/
@@ -58,15 +59,43 @@ function build_mailer(array $account): PHPMailer
 }
 
 /**
- * Envia a mensagem. $msg: to[], cc[], bcc[], reply_to, subject, html, text.
- * @return array{ok: bool, message_id: ?string, error: ?string}
+ * Envia a mensagem. $msg: to[], cc[], bcc[], reply_to, subject, html, text, from_name, headers{}.
+ * from_name vazio: vale o nome cadastrado na conta SMTP.
+ * smtp_code/smtp_code_ex: o código da recusa do RCPT TO (ex.: 550 e 5.1.1) ou, sem ela, da primeira resposta de erro do
+ * servidor (AUTH 535 5.7.8, MAIL FROM...).
+ * @return array{ok: bool, message_id: ?string, error: ?string, smtp_code?: ?string, smtp_code_ex?: ?string}
  */
 function smtp_send(array $account, array $msg): array
 {
     $mail = null;
+    // A recusa do destinatário: o PHPMailer manda QUIT antes de lançar a exceção, e o QUIT apaga o erro guardado. As
+    // respostas do servidor passam pelo Debugoutput (só em memória; a senha do AUTH já vem escondida pelo PHPMailer).
+    $rcptRefusal = null;
+    $firstRefusal = null;
+    $lastCommand = '';
     try {
         $mail = build_mailer($account);
-        $mail->setFrom($account['email'], (string) $account['from_name']);
+        $mail->SMTPDebug = SMTP::DEBUG_SERVER;
+        $mail->Debugoutput = static function (string $line) use (&$rcptRefusal, &$firstRefusal, &$lastCommand): void {
+            if (str_starts_with($line, 'CLIENT -> SERVER: ')) {
+                $lastCommand = strtoupper(substr($line, 18, 7));
+                return;
+            }
+            if (!str_starts_with($line, 'SERVER -> CLIENT: ')
+                || !preg_match('/^([45]\d\d)[ -](?:([45]\.\d{1,3}\.\d{1,3})\b)?/', substr($line, 18), $m)) {
+                return;
+            }
+            $refusal = ['smtp_code' => $m[1], 'smtp_code_ex' => $m[2] ?? ''];
+            $firstRefusal ??= $refusal;
+            if ($lastCommand === 'RCPT TO') {
+                $rcptRefusal ??= $refusal;
+            }
+        };
+        $fromName = (string) ($msg['from_name'] ?? '');
+        $mail->setFrom($account['email'], $fromName !== '' ? $fromName : (string) $account['from_name']);
+        foreach ($msg['headers'] ?? [] as $name => $value) {
+            $mail->addCustomHeader($name, $value);
+        }
         foreach ($msg['to'] as $addr) {
             $mail->addAddress($addr);
         }
@@ -92,7 +121,9 @@ function smtp_send(array $account, array $msg): array
         return ['ok' => true, 'message_id' => $mail->getLastMessageID(), 'error' => null];
     } catch (MailerException $e) {
         $info = $mail instanceof PHPMailer && $mail->ErrorInfo !== '' ? $mail->ErrorInfo : $e->getMessage();
-        return ['ok' => false, 'message_id' => null, 'error' => $info];
+        $smtpError = $rcptRefusal ?? $firstRefusal ?? ($mail instanceof PHPMailer ? $mail->getSMTPInstance()->getError() : []);
+        return ['ok' => false, 'message_id' => null, 'error' => $info,
+            'smtp_code' => (string) ($smtpError['smtp_code'] ?? ''), 'smtp_code_ex' => (string) ($smtpError['smtp_code_ex'] ?? '')];
     } catch (Throwable $e) {
         return ['ok' => false, 'message_id' => null, 'error' => $e->getMessage()];
     }

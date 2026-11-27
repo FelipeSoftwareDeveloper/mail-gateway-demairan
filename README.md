@@ -108,14 +108,15 @@ Apaga logs mais antigos que `logs.retention_days` (padrão 90) e tentativas de l
 
 | Campo | Obrigatório | Observação |
 | --- | --- | --- |
-| `from` | não | Se enviado, **precisa** ser a conta vinculada ao token (aceita `"Nome <email>"`). Diferente → **403**. Se omitido, usa a conta do token. |
+| `from` | não | Se enviado, **precisa** ser a conta vinculada ao token. Diferente → **403**. Se omitido, usa a conta do token. Aceita `"Nome <email>"`: o nome (até 100 caracteres) vira o nome de exibição deste envio. |
 | `to` | sim | String ou lista. |
 | `cc`, `bcc` | não | String ou lista. Total de destinatários ≤ `max_recipients` (50). |
 | `reply_to` | não | Um e-mail. |
 | `subject` | sim | Até 255 caracteres. |
 | `html` / `text` | ao menos um | Só `html`: a versão texto é gerada automaticamente. |
+| `headers` | não | Objeto `{"Nome": "valor"}`, até 10. Só `List-Unsubscribe`, `List-Unsubscribe-Post`, `In-Reply-To`, `References` e headers `X-` (menos `X-Mailer`, `X-Originating-IP` e `X-Priority`). Outro nome ou quebra de linha → **422**. |
 
-O nome de exibição vem sempre do cadastro da conta SMTP (não pode ser trocado pela aplicação).
+O endereço do remetente vem sempre da conta SMTP do token. O nome de exibição também, a não ser que o `from` traga um nome (ex.: `"Loja da Ana <avisos@demairan.com.br>"`), para uma plataforma enviar em nome de clientes dela pela mesma caixa.
 
 **Sucesso (200)**
 ```json
@@ -140,7 +141,7 @@ O nome de exibição vem sempre do cadastro da conta SMTP (não pode ser trocado
 | 422 | `validation_error` | Campo obrigatório faltando ou e-mail inválido |
 | 429 | `rate_limited` | Mais de `rate_limit_per_minute` envios do token por minuto |
 | 429 | `too_many_failed_attempts` | IP com muitas tentativas inválidas (bloqueio temporário) |
-| 502 | `smtp_error` | O Titan recusou ou não respondeu (detalhe em `message` e no log) |
+| 502 | `smtp_error` | O Titan recusou ou não respondeu (detalhe em `message` e no log). Quando o servidor respondeu, `smtp_code` (ex.: `550`, `450`) e `smtp_code_ex` (ex.: `5.1.1`) vêm junto em `error`: 5xx é recusa definitiva, 4xx é temporária |
 | 503 | `service_unavailable` | Banco indisponível |
 
 ### ⚠️ Proteção anti-robô da HostGator

@@ -31,9 +31,9 @@ function api_respond(int $status, array $body): never
     exit;
 }
 
-function api_error(int $status, string $code, string $message, ?int $logId = null): never
+function api_error(int $status, string $code, string $message, ?int $logId = null, array $extra = []): never
 {
-    $body = ['success' => false, 'error' => ['code' => $code, 'message' => $message]];
+    $body = ['success' => false, 'error' => ['code' => $code, 'message' => $message] + $extra];
     if ($logId !== null) {
         $body['log_id'] = $logId;
     }
@@ -64,6 +64,58 @@ function extract_address(string $from): string
         return trim($m[1]);
     }
     return trim($from);
+}
+
+/**
+ * O nome de "Nome <email@x.com>" (sem aspas); vazio quando só veio o e-mail. Quebra de linha ou NUL no nome, mesmo nas
+ * pontas: InvalidArgumentException (422), antes do trim, que esconderia a quebra.
+ */
+function extract_name(string $from): string
+{
+    if (!preg_match('/^(.*)<[^<>]+>\s*$/s', $from, $m)) {
+        return '';
+    }
+    if (preg_match('/[\r\n\0]/', $m[1])) {
+        throw new InvalidArgumentException('Nome inválido em "from" (sem quebras de linha).');
+    }
+    $name = trim($m[1]);
+    if (strlen($name) >= 2 && $name[0] === '"' && $name[strlen($name) - 1] === '"') {
+        // Só os escapes de um nome entre aspas (RFC 5322): \" e \\. "\n" continua sendo uma barra e um n.
+        $name = preg_replace('/\\\\(.)/s', '$1', substr($name, 1, -1));
+    }
+    return trim($name);
+}
+
+/** Headers que a aplicação pode mandar: descadastro (RFC 8058), conversa (In-Reply-To/References) e os X- próprios. */
+const ALLOWED_HEADERS = ['list-unsubscribe', 'list-unsubscribe-post', 'in-reply-to', 'references'];
+const BLOCKED_X_HEADERS = ['x-mailer', 'x-originating-ip', 'x-priority'];
+
+/** @return array<string, string> */
+function parse_headers(mixed $value): array
+{
+    if ($value === null || $value === []) {
+        return [];
+    }
+    if (!is_array($value) || array_is_list($value)) {
+        throw new InvalidArgumentException('"headers" precisa ser um objeto {"Nome": "valor"}.');
+    }
+    if (count($value) > 10) {
+        throw new InvalidArgumentException('Máximo de 10 itens em "headers".');
+    }
+    $out = [];
+    foreach ($value as $name => $content) {
+        $name = (string) $name;
+        $lower = strtolower($name);
+        if (!preg_match('/^[A-Za-z0-9-]{1,64}$/', $name)
+            || (!in_array($lower, ALLOWED_HEADERS, true) && (!str_starts_with($lower, 'x-') || in_array($lower, BLOCKED_X_HEADERS, true)))) {
+            throw new InvalidArgumentException("Header \"{$name}\" não permitido.");
+        }
+        if (!is_string($content) || trim($content) === '' || strlen($content) > 998 || preg_match('/[\r\n\0]/', $content)) {
+            throw new InvalidArgumentException("Valor inválido no header \"{$name}\".");
+        }
+        $out[$name] = trim($content);
+    }
+    return $out;
 }
 
 // ---------------------------------------------------------------------
@@ -235,6 +287,13 @@ try {
     if ($replyTo !== '' && !is_valid_email($replyTo)) {
         throw new InvalidArgumentException('Endereço inválido em "reply_to".');
     }
+    // Nome de exibição vindo do "from" ("Loja da Ana <avisos@...>"); sem nome, vale o da conta SMTP.
+    $fromName = is_string($from) ? extract_name($from) : '';
+    if ($fromName !== '' && (preg_match('/[\r\n\0<>]/', $fromName)
+        || (function_exists('mb_strlen') ? mb_strlen($fromName, 'UTF-8') : strlen($fromName)) > 100)) {
+        throw new InvalidArgumentException('Nome inválido em "from" (até 100 caracteres, sem quebras de linha nem < >).');
+    }
+    $headers = parse_headers($data['headers'] ?? null);
 } catch (InvalidArgumentException $e) {
     $logId = log_email($logBase + ['status' => 'failed', 'error_message' => 'Validação: ' . $e->getMessage()]);
     api_error(422, 'validation_error', $e->getMessage(), $logId);
@@ -247,6 +306,7 @@ $allRecipients = implode(', ', array_merge($to, $cc ? ['cc: ' . implode(', ', $c
 $result = smtp_send($row, [
     'to' => $to, 'cc' => $cc, 'bcc' => $bcc, 'reply_to' => $replyTo,
     'subject' => $subject, 'html' => $html, 'text' => $text,
+    'from_name' => $fromName, 'headers' => $headers,
 ]);
 
 $logId = log_email([
@@ -259,7 +319,11 @@ $logId = log_email([
 
 if (!$result['ok']) {
     error_log('[mail-gateway] falha SMTP (token ' . $ids['token_id'] . '): ' . $result['error']);
-    api_error(502, 'smtp_error', 'O servidor SMTP recusou o envio: ' . $result['error'], $logId);
+    // smtp_code (ex.: 550, 450) e smtp_code_ex (ex.: 5.1.1): a aplicação distingue recusa definitiva (5xx) de temporária (4xx).
+    api_error(502, 'smtp_error', 'O servidor SMTP recusou o envio: ' . $result['error'], $logId, array_filter([
+        'smtp_code'    => $result['smtp_code'] ?? null,
+        'smtp_code_ex' => $result['smtp_code_ex'] ?? null,
+    ], fn ($v) => $v !== null && $v !== ''));
 }
 
 api_respond(200, [
