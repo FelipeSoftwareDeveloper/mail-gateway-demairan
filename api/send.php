@@ -66,15 +66,22 @@ function extract_address(string $from): string
     return trim($from);
 }
 
-/** O nome de "Nome <email@x.com>" (sem aspas); vazio quando só veio o e-mail. */
+/**
+ * O nome de "Nome <email@x.com>" (sem aspas); vazio quando só veio o e-mail. Quebra de linha ou NUL no nome, mesmo nas
+ * pontas: InvalidArgumentException (422), antes do trim, que esconderia a quebra.
+ */
 function extract_name(string $from): string
 {
     if (!preg_match('/^(.*)<[^<>]+>\s*$/s', $from, $m)) {
         return '';
     }
+    if (preg_match('/[\r\n\0]/', $m[1])) {
+        throw new InvalidArgumentException('Nome inválido em "from" (sem quebras de linha).');
+    }
     $name = trim($m[1]);
     if (strlen($name) >= 2 && $name[0] === '"' && $name[strlen($name) - 1] === '"') {
-        $name = stripcslashes(substr($name, 1, -1));
+        // Só os escapes de um nome entre aspas (RFC 5322): \" e \\. "\n" continua sendo uma barra e um n.
+        $name = preg_replace('/\\\\(.)/s', '$1', substr($name, 1, -1));
     }
     return trim($name);
 }
