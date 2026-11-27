@@ -129,6 +129,29 @@ function smtp_send(array $account, array $msg): array
     }
 }
 
+/* ---------------------------------------------------------------------
+ *  Escolha do provedor pela conta de envio
+ * ------------------------------------------------------------------- */
+
+const MAIL_PROVIDERS = ['titan' => 'Titan (SMTP)', 'resend' => 'Resend (API)'];
+
+function account_provider(array $account): string
+{
+    return ($account['provider'] ?? 'titan') === 'resend' ? 'resend' : 'titan';
+}
+
+/** Envia pela conta, usando o provedor configurado nela. */
+function provider_send(array $account, array $msg): array
+{
+    return account_provider($account) === 'resend' ? resend_send($account, $msg) : smtp_send($account, $msg);
+}
+
+/** Testa a conta sem enviar e-mail. */
+function provider_test(array $account): array
+{
+    return account_provider($account) === 'resend' ? resend_test($account) : smtp_test($account);
+}
+
 /** Testa conexão + autenticação no SMTP sem enviar nada. */
 function smtp_test(array $account): array
 {

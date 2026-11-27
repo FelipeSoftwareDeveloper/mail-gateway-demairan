@@ -98,7 +98,7 @@ function mcp_tools(): array
 
         'list_smtp_accounts' => [
             'title' => 'Listar contas SMTP',
-            'description' => 'Lista as contas SMTP (remetentes) cadastradas. As senhas nunca são retornadas.',
+            'description' => 'Lista as contas de envio (remetentes), com o provedor de cada uma (titan ou resend). Senhas e API keys nunca são retornadas.',
             'inputSchema' => $noArgs,
             'write' => false,
             'annotations' => $ro,
@@ -110,7 +110,7 @@ function mcp_tools(): array
 
         'test_smtp_account' => [
             'title' => 'Testar conta SMTP',
-            'description' => 'Conecta e autentica no servidor SMTP da conta, sem enviar e-mail. Use para validar senha e porta.',
+            'description' => 'Testa a conta sem enviar e-mail. Titan: conecta e autentica no SMTP. Resend: valida a API key e se o domínio do remetente está verificado.',
             'inputSchema' => [
                 'type' => 'object',
                 'properties' => ['smtp_account_id' => ['type' => 'integer', 'description' => 'ID da conta (veja list_smtp_accounts).']],
@@ -124,8 +124,9 @@ function mcp_tools(): array
                 if (!$acc) {
                     throw new InvalidArgumentException('Conta SMTP não encontrada.');
                 }
-                $r = smtp_test($acc);
-                return ['smtp_account_id' => (int) $acc['id'], 'email' => $acc['email'], 'ok' => $r['ok'], 'error' => $r['error']];
+                $r = provider_test($acc);
+                return ['smtp_account_id' => (int) $acc['id'], 'email' => $acc['email'], 'provider' => account_provider($acc),
+                    'ok' => $r['ok'], 'error' => $r['error'], 'warning' => $r['warning'] ?? null];
             },
         ],
 
@@ -156,6 +157,7 @@ function mcp_tools(): array
                 'type' => 'object',
                 'properties' => [
                     'status'     => ['type' => 'string', 'enum' => ['sent', 'failed', 'unauthorized']],
+                    'provider'   => ['type' => 'string', 'enum' => ['titan', 'resend']],
                     'project_id' => ['type' => 'integer'],
                     'token_id'   => ['type' => 'integer'],
                     'query'      => ['type' => 'string', 'description' => 'Trecho de e-mail, assunto ou IP.'],
@@ -173,6 +175,7 @@ function mcp_tools(): array
                 $page = max(1, mcp_arg_int($a, 'page', false, 1));
                 $r = logs_query([
                     'status'     => mcp_arg_str($a, 'status'),
+                    'provider'   => mcp_arg_str($a, 'provider'),
                     'project_id' => mcp_arg_int($a, 'project_id'),
                     'token_id'   => mcp_arg_int($a, 'token_id'),
                     'q'          => mcp_arg_str($a, 'query', false, 190),
@@ -226,30 +229,40 @@ function mcp_tools(): array
         ],
 
         'create_smtp_account' => [
-            'title' => 'Cadastrar conta SMTP',
-            'description' => 'Cadastra uma caixa do Titan como remetente. A senha é criptografada no banco e nunca volta em nenhuma ferramenta. '
-                . 'Padrões: smtp.titan.email, ssl na porta 465 (ou tls na 587). Depois de cadastrar, rode test_smtp_account.',
+            'title' => 'Cadastrar conta de envio',
+            'description' => 'Cadastra um remetente. provider "titan" (padrão): caixa do Titan via SMTP, exige "password" '
+                . '(padrões smtp.titan.email, ssl na 465 ou tls na 587). provider "resend": API do Resend, exige "api_key" (re_...) '
+                . 'e o domínio do e-mail precisa estar verificado no Resend. Senha e API key são criptografadas e nunca voltam em '
+                . 'nenhuma ferramenta. Depois de cadastrar, rode test_smtp_account.',
             'inputSchema' => [
                 'type' => 'object',
                 'properties' => [
+                    'provider'   => ['type' => 'string', 'enum' => ['titan', 'resend'], 'default' => 'titan'],
                     'email'      => ['type' => 'string', 'format' => 'email'],
-                    'password'   => ['type' => 'string', 'description' => 'Senha da caixa de e-mail.'],
                     'from_name'  => ['type' => 'string', 'maxLength' => 120, 'description' => 'Nome de exibição do remetente.'],
-                    'smtp_host'  => ['type' => 'string', 'default' => 'smtp.titan.email'],
-                    'smtp_port'  => ['type' => 'integer', 'description' => '465 (ssl) ou 587 (tls).'],
-                    'encryption' => ['type' => 'string', 'enum' => ['ssl', 'tls'], 'default' => 'ssl'],
+                    'password'   => ['type' => 'string', 'description' => 'Titan: senha da caixa de e-mail.'],
+                    'api_key'    => ['type' => 'string', 'description' => 'Resend: API key (re_...).'],
+                    'smtp_host'  => ['type' => 'string', 'default' => 'smtp.titan.email', 'description' => 'Só Titan.'],
+                    'smtp_port'  => ['type' => 'integer', 'description' => 'Só Titan: 465 (ssl) ou 587 (tls).'],
+                    'encryption' => ['type' => 'string', 'enum' => ['ssl', 'tls'], 'default' => 'ssl', 'description' => 'Só Titan.'],
                 ],
-                'required' => ['email', 'password'],
+                'required' => ['email'],
                 'additionalProperties' => false,
             ],
             'write' => true,
             'annotations' => ['readOnlyHint' => false, 'destructiveHint' => false, 'idempotentHint' => false, 'openWorldHint' => false],
             'handler' => function (array $a): array {
-                $password = $a['password'] ?? '';
-                if (!is_string($password) || $password === '') {
-                    throw new InvalidArgumentException('O campo "password" é obrigatório.');
+                $provider = mcp_arg_str($a, 'provider') ?: 'titan';
+                if (!in_array($provider, ['titan', 'resend'], true)) {
+                    throw new InvalidArgumentException('provider deve ser "titan" ou "resend".');
+                }
+                $field = $provider === 'resend' ? 'api_key' : 'password';
+                $secret = $a[$field] ?? '';
+                if (!is_string($secret) || trim($secret) === '') {
+                    throw new InvalidArgumentException("O campo \"{$field}\" é obrigatório para o provedor {$provider}.");
                 }
                 $v = smtp_normalize([
+                    'provider'   => $provider,
                     'email'      => mcp_arg_str($a, 'email', true, 190),
                     'from_name'  => mcp_arg_str($a, 'from_name', false, 120),
                     'smtp_host'  => mcp_arg_str($a, 'smtp_host', false, 190),
@@ -257,9 +270,12 @@ function mcp_tools(): array
                     'encryption' => mcp_arg_str($a, 'encryption') ?: 'ssl',
                     'is_active'  => true,
                 ]);
-                $id = smtp_create($v, $password);
-                return ['created' => true, 'smtp_account_id' => $id, 'email' => $v['email'], 'smtp_host' => $v['smtp_host'],
-                    'smtp_port' => $v['smtp_port'], 'encryption' => $v['encryption']];
+                $id = smtp_create($v, $provider === 'resend' ? trim($secret) : $secret);
+                $out = ['created' => true, 'smtp_account_id' => $id, 'email' => $v['email'], 'provider' => $provider];
+                if ($provider === 'titan') {
+                    $out += ['smtp_host' => $v['smtp_host'], 'smtp_port' => $v['smtp_port'], 'encryption' => $v['encryption']];
+                }
+                return $out;
             },
         ],
 

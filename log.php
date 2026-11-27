@@ -24,7 +24,8 @@ page_head('Registro #' . $log['id'], fmt_dt($log['created_at'], 'd/m/Y \à\s H:i
       <dt>Assunto</dt><dd><?= e($log['subject'] ?: '—') ?></dd>
       <dt>Projeto</dt><dd><?= e($log['project'] ?? '—') ?></dd>
       <dt>Token</dt><dd><?= $log['token_name'] ? e($log['token_name']) . ' <span class="mono muted">' . e($log['token_prefix']) . '…</span> ' . status_badge($log['token_status']) : '—' ?></dd>
-      <dt>Message-ID</dt><dd class="mono"><?= e($log['message_id'] ?: '—') ?></dd>
+      <dt>Provedor</dt><dd><?= e(MAIL_PROVIDERS[$log['provider'] ?? ''] ?? '—') ?></dd>
+      <dt><?= ($log['provider'] ?? '') === 'resend' ? 'ID no Resend' : 'Message-ID' ?></dt><dd class="mono"><?= e($log['message_id'] ?: '—') ?></dd>
       <dt>IP de origem</dt><dd class="mono"><?= e($log['origin_ip']) ?></dd>
       <dt>User-Agent</dt><dd class="mono"><?= e($log['user_agent'] ?: '—') ?></dd>
       <dt>Origin / Referer</dt><dd class="mono"><?= e($log['origin_header'] ?: '—') ?></dd>

@@ -169,8 +169,8 @@ if ($token === null || !is_valid_token_format($token)) {
 
 $row = db_one(
     'SELECT t.id AS token_id, t.status AS token_status, t.project_id, t.smtp_account_id,
-            s.email, s.from_name, s.smtp_password_encrypted, s.smtp_host, s.smtp_port,
-            s.encryption, s.is_active
+            s.email, s.from_name, s.provider, s.smtp_password_encrypted, s.api_key_encrypted,
+            s.smtp_host, s.smtp_port, s.encryption, s.is_active
        FROM api_tokens t
        JOIN smtp_accounts s ON s.id = t.smtp_account_id
       WHERE t.token_hash = ?
@@ -188,6 +188,7 @@ $ids = [
     'token_id'        => (int) $row['token_id'],
     'project_id'      => (int) $row['project_id'],
     'smtp_account_id' => (int) $row['smtp_account_id'],
+    'provider'        => account_provider($row),
 ];
 
 if ($row['token_status'] !== 'active') {
@@ -256,6 +257,9 @@ $subject = is_string($data['subject'] ?? null) ? trim(str_replace(["\r", "\n"], 
 $html = is_string($data['html'] ?? null) ? $data['html'] : '';
 $text = is_string($data['text'] ?? null) ? $data['text'] : '';
 $replyTo = is_string($data['reply_to'] ?? null) ? trim($data['reply_to']) : '';
+// Opcional: evita envio duplicado quando a aplicação repete a mesma requisição
+// (repassado ao Resend; no Titan não tem efeito).
+$idempotencyKey = is_string($data['idempotency_key'] ?? null) ? trim($data['idempotency_key']) : '';
 
 $recipientsForLog = is_string($data['to'] ?? null) ? $data['to'] : (is_array($data['to'] ?? null) ? implode(', ', array_filter($data['to'], 'is_string')) : null);
 $logBase = $ctx + $ids + [
@@ -287,26 +291,30 @@ try {
     if ($replyTo !== '' && !is_valid_email($replyTo)) {
         throw new InvalidArgumentException('Endereço inválido em "reply_to".');
     }
-    // Nome de exibição vindo do "from" ("Loja da Ana <avisos@...>"); sem nome, vale o da conta SMTP.
+    // Nome de exibição vindo do "from" ("Loja da Ana <avisos@...>"); sem nome, vale o da conta de envio.
     $fromName = is_string($from) ? extract_name($from) : '';
     if ($fromName !== '' && (preg_match('/[\r\n\0<>]/', $fromName)
         || (function_exists('mb_strlen') ? mb_strlen($fromName, 'UTF-8') : strlen($fromName)) > 100)) {
         throw new InvalidArgumentException('Nome inválido em "from" (até 100 caracteres, sem quebras de linha nem < >).');
     }
     $headers = parse_headers($data['headers'] ?? null);
+    if ($idempotencyKey !== '' && !preg_match('/^[A-Za-z0-9_\-:.]{1,256}$/', $idempotencyKey)) {
+        throw new InvalidArgumentException('"idempotency_key" aceita até 256 caracteres: letras, números, _ - : e ponto.');
+    }
 } catch (InvalidArgumentException $e) {
     $logId = log_email($logBase + ['status' => 'failed', 'error_message' => 'Validação: ' . $e->getMessage()]);
     api_error(422, 'validation_error', $e->getMessage(), $logId);
 }
 
 // ---------------------------------------------------------------------
-// 5) Envio via SMTP (Titan)
+// 5) Envio pelo provedor da conta (Titan via SMTP ou Resend via API)
 // ---------------------------------------------------------------------
 $allRecipients = implode(', ', array_merge($to, $cc ? ['cc: ' . implode(', ', $cc)] : [], $bcc ? ['bcc: ' . implode(', ', $bcc)] : []));
-$result = smtp_send($row, [
+$result = provider_send($row, [
     'to' => $to, 'cc' => $cc, 'bcc' => $bcc, 'reply_to' => $replyTo,
     'subject' => $subject, 'html' => $html, 'text' => $text,
     'from_name' => $fromName, 'headers' => $headers,
+    'idempotency_key' => $idempotencyKey,
 ]);
 
 $logId = log_email([
@@ -318,17 +326,22 @@ $logId = log_email([
 ] + $logBase);
 
 if (!$result['ok']) {
-    error_log('[mail-gateway] falha SMTP (token ' . $ids['token_id'] . '): ' . $result['error']);
-    // smtp_code (ex.: 550, 450) e smtp_code_ex (ex.: 5.1.1): a aplicação distingue recusa definitiva (5xx) de temporária (4xx).
-    api_error(502, 'smtp_error', 'O servidor SMTP recusou o envio: ' . $result['error'], $logId, array_filter([
-        'smtp_code'    => $result['smtp_code'] ?? null,
-        'smtp_code_ex' => $result['smtp_code_ex'] ?? null,
-    ], fn ($v) => $v !== null && $v !== ''));
+    error_log("[mail-gateway] falha no envio via {$ids['provider']} (token {$ids['token_id']}): " . $result['error']);
+    // O código continua "smtp_error" nos dois provedores, para não quebrar integrações.
+    // Titan: smtp_code (ex.: 550, 450) e smtp_code_ex (ex.: 5.1.1) distinguem recusa definitiva (5xx) de temporária (4xx).
+    // Resend: resend_status traz o status HTTP da API (ex.: 403, 429).
+    $who = $ids['provider'] === 'resend' ? 'O Resend recusou o envio: ' : 'O servidor SMTP recusou o envio: ';
+    api_error(502, 'smtp_error', $who . $result['error'], $logId, array_filter([
+        'smtp_code'     => $result['smtp_code'] ?? null,
+        'smtp_code_ex'  => $result['smtp_code_ex'] ?? null,
+        'resend_status' => $result['resend_status'] ?? null,
+    ], fn ($v) => $v !== null && $v !== '' && $v !== 0));
 }
 
 api_respond(200, [
     'success'    => true,
     'log_id'     => $logId,
+    'provider'   => $ids['provider'],
     'message_id' => $result['message_id'],
     'from'       => $row['email'],
     'to'         => $to,

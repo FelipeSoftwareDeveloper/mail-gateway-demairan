@@ -34,6 +34,7 @@ require APP_DIR . '/crypto.php';
 require APP_DIR . '/security.php';
 require APP_DIR . '/logger.php';
 require APP_DIR . '/mailer.php';
+require APP_DIR . '/resend.php';
 require APP_DIR . '/layout.php';
 require APP_DIR . '/services.php';
 

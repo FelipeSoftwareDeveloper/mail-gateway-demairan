@@ -81,6 +81,7 @@ a:hover { text-decoration: underline; }
 code, .mono { font-family: var(--font-mono); font-size: 13px; }
 .muted { color: var(--ink-muted); }
 .small { font-size: 13px; line-height: 18px; }
+[hidden] { display: none !important; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .icon { width: 18px; height: 18px; flex: none; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }

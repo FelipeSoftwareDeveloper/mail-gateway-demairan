@@ -48,7 +48,7 @@ function mcp_tool_ok(array $data): array
 /** Grava ações de escrita; nunca guarda senhas. */
 function mcp_audit(int $keyId, string $tool, array $args, bool $success, string $message, string $ip): void
 {
-    unset($args['password']);
+    unset($args['password'], $args['api_key']);
     try {
         db_run(
             'INSERT INTO mcp_audit (key_id, tool, arguments, success, message, origin_ip) VALUES (?, ?, ?, ?, ?, ?)',

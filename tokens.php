@@ -35,7 +35,7 @@ unset($_SESSION['_new_token']);
 $filter = query('status');
 $tokens = api_tokens_list($filter);
 $projects = db_all('SELECT id, name FROM projects ORDER BY name');
-$accounts = db_all('SELECT id, email, from_name FROM smtp_accounts WHERE is_active = 1 ORDER BY email');
+$accounts = db_all('SELECT id, email, from_name, provider FROM smtp_accounts WHERE is_active = 1 ORDER BY email');
 
 $endpoint = (is_https() ? 'https://' : 'http://')
     . preg_replace('/[^A-Za-z0-9.\-:\[\]]/', '', (string) ($_SERVER['HTTP_HOST'] ?? 'seu-dominio.com.br'))
@@ -138,7 +138,7 @@ if ($newToken): ?>
         <div class="field">
           <label for="smtp_account_id">Conta de envio</label>
           <select class="select" id="smtp_account_id" name="smtp_account_id" required>
-            <?php foreach ($accounts as $a): ?><option value="<?= (int) $a['id'] ?>"><?= e($a['email']) ?><?= $a['from_name'] ? ' · ' . e($a['from_name']) : '' ?></option><?php endforeach; ?>
+            <?php foreach ($accounts as $a): ?><option value="<?= (int) $a['id'] ?>"><?= e($a['email']) ?><?= $a['from_name'] ? ' · ' . e($a['from_name']) : '' ?> (<?= account_provider($a) === 'resend' ? 'Resend' : 'Titan' ?>)</option><?php endforeach; ?>
           </select>
           <span class="hint">O token só poderá enviar como este endereço. Qualquer outro "from" recebe erro 403.</span>
         </div>

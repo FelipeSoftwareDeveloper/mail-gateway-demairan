@@ -38,36 +38,57 @@ function projects_list(): array
 }
 
 /* ---------------------------------------------------------------------
- *  Contas SMTP
+ *  Contas de envio (Titan via SMTP ou Resend via API)
  * ------------------------------------------------------------------- */
 
-/** Normaliza e aplica padrões do Titan. */
+/** Normaliza e aplica os padrões de cada provedor. */
 function smtp_normalize(array $in): array
 {
+    $provider = ($in['provider'] ?? 'titan') === 'resend' ? 'resend' : 'titan';
+    $base = [
+        'email'     => strtolower(trim((string) ($in['email'] ?? ''))),
+        'from_name' => trim((string) ($in['from_name'] ?? '')),
+        'provider'  => $provider,
+        'is_active' => !empty($in['is_active']) ? 1 : 0,
+    ];
+    if ($provider === 'resend') {
+        // Campos SMTP não se aplicam; ficam com valores fixos e informativos.
+        return $base + ['smtp_host' => 'api.resend.com', 'smtp_port' => 443, 'encryption' => 'tls'];
+    }
     $encryption = strtolower(trim((string) ($in['encryption'] ?? 'ssl')));
     $port = $in['smtp_port'] ?? null;
     $host = trim((string) ($in['smtp_host'] ?? ''));
-    return [
-        'email'      => strtolower(trim((string) ($in['email'] ?? ''))),
-        'from_name'  => trim((string) ($in['from_name'] ?? '')),
+    return $base + [
         'smtp_host'  => strtolower($host !== '' ? $host : 'smtp.titan.email'),
         'smtp_port'  => ($port === null || $port === '') ? ($encryption === 'tls' ? 587 : 465) : (int) $port,
         'encryption' => $encryption,
-        'is_active'  => !empty($in['is_active']) ? 1 : 0,
     ];
 }
 
-/** @return string[] lista de erros */
-function smtp_validate(array $v, bool $passwordRequired, string $password, int $ignoreId = 0): array
+function is_valid_resend_key(string $key): bool
+{
+    return (bool) preg_match('/^re_[A-Za-z0-9_]{8,200}$/', $key);
+}
+
+/**
+ * $secret = senha SMTP (Titan) ou API key (Resend).
+ * @return string[] lista de erros
+ */
+function smtp_validate(array $v, bool $secretRequired, string $secret, int $ignoreId = 0): array
 {
     $errors = [];
     if (!is_valid_email($v['email'])) $errors[] = 'E-mail inválido.';
-    if (mb_strlen($v['from_name']) > 120 || preg_match('/[\r\n]/', $v['from_name'])) $errors[] = 'Nome de exibição inválido (até 120 caracteres).';
-    if (!preg_match('/^(?=.{1,190}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/', $v['smtp_host'])) $errors[] = 'Servidor SMTP inválido.';
-    if ($v['smtp_port'] < 1 || $v['smtp_port'] > 65535) $errors[] = 'Porta inválida.';
-    if (!in_array($v['encryption'], ['ssl', 'tls'], true)) $errors[] = 'Criptografia deve ser ssl ou tls.';
-    if ($passwordRequired && $password === '') $errors[] = 'Informe a senha da caixa de e-mail.';
-    if (strlen($password) > 500) $errors[] = 'Senha longa demais.';
+    if (mb_strlen($v['from_name']) > 120 || preg_match('/[\r\n"]/', $v['from_name'])) $errors[] = 'Nome de exibição inválido (até 120 caracteres, sem aspas).';
+    if ($v['provider'] === 'resend') {
+        if ($secretRequired && $secret === '') $errors[] = 'Informe a API key do Resend.';
+        if ($secret !== '' && !is_valid_resend_key($secret)) $errors[] = 'API key do Resend inválida (começa com re_).';
+    } else {
+        if (!preg_match('/^(?=.{1,190}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/', $v['smtp_host'])) $errors[] = 'Servidor SMTP inválido.';
+        if ($v['smtp_port'] < 1 || $v['smtp_port'] > 65535) $errors[] = 'Porta inválida.';
+        if (!in_array($v['encryption'], ['ssl', 'tls'], true)) $errors[] = 'Criptografia deve ser ssl ou tls.';
+        if ($secretRequired && $secret === '') $errors[] = 'Informe a senha da caixa de e-mail.';
+        if (strlen($secret) > 500) $errors[] = 'Senha longa demais.';
+    }
     if ($v['email'] !== '' && db_val('SELECT id FROM smtp_accounts WHERE email = ? AND id <> ?', [$v['email'], $ignoreId])) {
         $errors[] = 'Esse e-mail já está cadastrado.';
     }
@@ -75,24 +96,38 @@ function smtp_validate(array $v, bool $passwordRequired, string $password, int $
     return $errors;
 }
 
-function smtp_create(array $v, string $password): int
+function smtp_create(array $v, string $secret): int
 {
-    $errors = smtp_validate($v, true, $password);
+    $errors = smtp_validate($v, true, $secret);
     if ($errors) {
         throw new InvalidArgumentException(implode(' ', $errors));
     }
+    $isResend = $v['provider'] === 'resend';
     return db_insert(
-        'INSERT INTO smtp_accounts (email, from_name, smtp_password_encrypted, smtp_host, smtp_port, encryption, is_active)
-         VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [$v['email'], $v['from_name'], encrypt_secret($password), $v['smtp_host'], $v['smtp_port'], $v['encryption'], $v['is_active']]
+        'INSERT INTO smtp_accounts
+            (email, from_name, provider, smtp_password_encrypted, api_key_encrypted, smtp_host, smtp_port, encryption, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+            $v['email'], $v['from_name'], $v['provider'],
+            $isResend ? null : encrypt_secret($secret),
+            $isResend ? encrypt_secret($secret) : null,
+            $v['smtp_host'], $v['smtp_port'], $v['encryption'], $v['is_active'],
+        ]
     );
 }
 
-/** Lista contas sem nunca expor a senha. */
+/** Atualiza o segredo da conta (senha ou API key, conforme o provedor). */
+function smtp_update_secret(int $id, string $provider, string $secret): void
+{
+    $column = $provider === 'resend' ? 'api_key_encrypted' : 'smtp_password_encrypted';
+    db_run("UPDATE smtp_accounts SET {$column} = ? WHERE id = ?", [encrypt_secret($secret), $id]);
+}
+
+/** Lista contas sem nunca expor senha ou API key. */
 function smtp_list(): array
 {
     return db_all(
-        "SELECT s.id, s.email, s.from_name, s.smtp_host, s.smtp_port, s.encryption, s.is_active, s.created_at,
+        "SELECT s.id, s.email, s.from_name, s.provider, s.smtp_host, s.smtp_port, s.encryption, s.is_active, s.created_at,
                 (SELECT COUNT(*) FROM api_tokens t WHERE t.smtp_account_id = s.id AND t.status = 'active') AS active_tokens,
                 (SELECT MAX(l.created_at) FROM email_logs l WHERE l.smtp_account_id = s.id AND l.status = 'sent') AS last_sent
            FROM smtp_accounts s ORDER BY s.email"
@@ -160,7 +195,7 @@ function api_tokens_list(string $status = '', int $projectId = 0): array
  * ------------------------------------------------------------------- */
 
 /**
- * Busca nos logs. Filtros: status, project_id, token_id, q, from (Y-m-d), to (Y-m-d).
+ * Busca nos logs. Filtros: status, provider, project_id, token_id, q, from (Y-m-d), to (Y-m-d).
  * @return array{total: int, rows: array}
  */
 function logs_query(array $f, int $limit, int $offset): array
@@ -170,6 +205,10 @@ function logs_query(array $f, int $limit, int $offset): array
     if (in_array($f['status'] ?? '', ['sent', 'failed', 'unauthorized'], true)) {
         $where[] = 'l.status = ?';
         $params[] = $f['status'];
+    }
+    if (in_array($f['provider'] ?? '', ['titan', 'resend'], true)) {
+        $where[] = 'l.provider = ?';
+        $params[] = $f['provider'];
     }
     if (!empty($f['project_id'])) {
         $where[] = 'l.project_id = ?';
@@ -199,7 +238,7 @@ function logs_query(array $f, int $limit, int $offset): array
 
     $total = (int) db_val("SELECT COUNT(*) FROM email_logs l {$whereSql}", $params);
     $rows = db_all(
-        "SELECT l.id, l.status, l.sender_email, l.recipient_email, l.subject, l.origin_ip, l.error_message, l.created_at,
+        "SELECT l.id, l.status, l.provider, l.sender_email, l.recipient_email, l.subject, l.origin_ip, l.error_message, l.created_at,
                 l.project_id, p.name AS project, l.token_id, t.name AS token_name, t.token_prefix
            FROM email_logs l
            LEFT JOIN projects p ON p.id = l.project_id

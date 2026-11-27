@@ -43,9 +43,9 @@ function render_head(string $title): void
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="assets/app.css?v=1">
+<link rel="stylesheet" href="assets/app.css?v=2">
 <script src="assets/theme.js?v=1"></script>
-<script src="assets/app.js?v=1" defer></script>
+<script src="assets/app.js?v=2" defer></script>
 </head>
 <?php
 }
@@ -63,7 +63,7 @@ function render_header(string $title, string $active = ''): void
     $nav = [
         'dashboard' => ['index.php', 'Visão geral', 'home'],
         'projects'  => ['projects.php', 'Projetos', 'folder'],
-        'smtp'      => ['smtp.php', 'Contas SMTP', 'mail'],
+        'smtp'      => ['smtp.php', 'Contas de envio', 'mail'],
         'tokens'    => ['tokens.php', 'Tokens de API', 'key'],
         'logs'      => ['logs.php', 'Logs', 'list'],
         'mcp'       => ['mcp_keys.php', 'Acesso MCP', 'plug'],

@@ -10,13 +10,14 @@ function log_email(array $d): ?int
     try {
         return db_insert(
             'INSERT INTO email_logs
-                (token_id, project_id, smtp_account_id, sender_email, recipient_email, subject,
+                (token_id, project_id, smtp_account_id, provider, sender_email, recipient_email, subject,
                  body_preview, message_id, origin_ip, user_agent, origin_header, status, error_message)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 $d['token_id'] ?? null,
                 $d['project_id'] ?? null,
                 $d['smtp_account_id'] ?? null,
+                $d['provider'] ?? null,
                 str_cut($d['sender_email'] ?? null, 190),
                 str_cut($d['recipient_email'] ?? null, 10000),
                 str_cut($d['subject'] ?? null, 500),

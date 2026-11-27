@@ -55,6 +55,22 @@
     });
   });
 
+  // Campos por provedor: mostra só o bloco [data-provider-fields] do provedor escolhido.
+  // Campos ocultos ficam desabilitados para não serem enviados.
+  document.querySelectorAll('[data-provider-select]').forEach(function (sel) {
+    var form = sel.closest('form');
+    var apply = function () {
+      var value = sel.getAttribute('data-provider-value') || sel.value;
+      form.querySelectorAll('[data-provider-fields]').forEach(function (block) {
+        var on = block.getAttribute('data-provider-fields') === value;
+        block.hidden = !on;
+        block.querySelectorAll('input, select, textarea').forEach(function (el) { el.disabled = !on; });
+      });
+    };
+    sel.addEventListener('change', apply);
+    apply();
+  });
+
   // Mostrar/ocultar senha: <button data-toggle-password="#id">
   document.querySelectorAll('[data-toggle-password]').forEach(function (btn) {
     btn.addEventListener('click', function () {

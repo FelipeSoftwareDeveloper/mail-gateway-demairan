@@ -47,15 +47,17 @@ CREATE TABLE IF NOT EXISTS projects (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
--- Contas SMTP (Titan Email)
--- smtp_password_encrypted = "v1:" + base64(iv[12] | tag[16] | ciphertext)
--- (AES-256-GCM com a APP_KEY do config.php)
+-- Contas de envio: Titan (SMTP) ou Resend (API HTTP)
+-- smtp_password_encrypted / api_key_encrypted =
+--   "v1:" + base64(iv[12] | tag[16] | ciphertext)  (AES-256-GCM, app_key)
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS smtp_accounts (
     id                        INT UNSIGNED NOT NULL AUTO_INCREMENT,
     email                     VARCHAR(190) NOT NULL,
     from_name                 VARCHAR(120) NOT NULL DEFAULT '',
-    smtp_password_encrypted   TEXT         NOT NULL,
+    provider                  ENUM('titan','resend') NOT NULL DEFAULT 'titan',
+    smtp_password_encrypted   TEXT         NULL,
+    api_key_encrypted         TEXT         NULL,
     smtp_host                 VARCHAR(190) NOT NULL DEFAULT 'smtp.titan.email',
     smtp_port                 SMALLINT UNSIGNED NOT NULL DEFAULT 465,
     encryption                ENUM('ssl','tls') NOT NULL DEFAULT 'ssl',
@@ -97,6 +99,7 @@ CREATE TABLE IF NOT EXISTS email_logs (
     token_id         INT UNSIGNED NULL,
     project_id       INT UNSIGNED NULL,
     smtp_account_id  INT UNSIGNED NULL,
+    provider         VARCHAR(20)  NULL,
     sender_email     VARCHAR(190) NULL,
     recipient_email  TEXT         NULL,
     subject          VARCHAR(500) NULL,

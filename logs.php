@@ -6,6 +6,7 @@ require_admin();
 
 $f = [
     'status'     => query('status'),
+    'provider'   => query('provider'),
     'project_id' => query_int('project_id'),
     'token_id'   => query_int('token_id'),
     'q'          => query('q'),
@@ -53,6 +54,12 @@ page_head('Logs de auditoria', fmt_num($total) . ' registro(s) encontrados. Envi
         <?php foreach ($tokens as $t): ?><option value="<?= (int) $t['id'] ?>" <?= $f['token_id'] === (int) $t['id'] ? 'selected' : '' ?>><?= e($t['name'] . ' (' . $t['token_prefix'] . '…)') ?></option><?php endforeach; ?>
       </select>
     </div>
+    <div class="field"><label for="provider">Provedor</label>
+      <select class="select" id="provider" name="provider">
+        <option value="">Todos</option>
+        <?php foreach (MAIL_PROVIDERS as $key => $label): ?><option value="<?= e($key) ?>" <?= $f['provider'] === $key ? 'selected' : '' ?>><?= e($label) ?></option><?php endforeach; ?>
+      </select>
+    </div>
     <div class="form-actions"><button class="btn btn-primary" type="submit">Filtrar</button><a class="btn btn-secondary" href="logs.php">Limpar</a></div>
   </form>
 
@@ -65,7 +72,7 @@ page_head('Logs de auditoria', fmt_num($total) . ' registro(s) encontrados. Envi
       <tbody>
       <?php foreach ($logs as $l): ?>
         <tr>
-          <td><a href="log.php?id=<?= (int) $l['id'] ?>"><?= status_badge($l['status']) ?></a></td>
+          <td><a href="log.php?id=<?= (int) $l['id'] ?>"><?= status_badge($l['status']) ?></a><?php if (!empty($l['provider'])): ?><span class="cell-sub"><?= $l['provider'] === 'resend' ? 'Resend' : 'Titan' ?></span><?php endif; ?></td>
           <td class="nowrap muted"><a href="log.php?id=<?= (int) $l['id'] ?>"><?= e(fmt_dt($l['created_at'], 'd/m/Y H:i:s')) ?></a></td>
           <td><span class="truncate"><?= e($l['sender_email'] ?: '—') ?></span><span class="cell-sub truncate"><?= e($l['recipient_email'] ?: '—') ?></span></td>
           <td><span class="truncate"><?= e($l['subject'] ?: '—') ?></span><?php if ($l['error_message']): ?><span class="cell-sub truncate"><?= e($l['error_message']) ?></span><?php endif; ?></td>

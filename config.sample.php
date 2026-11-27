@@ -60,6 +60,12 @@ return [
         'hosting_cookie'           => null,
     ],
 
+    // Resend (provedor alternativo ao Titan). A API key fica em cada conta de
+    // envio, criptografada no banco; aqui só o endereço da API.
+    'resend' => [
+        'base_url' => 'https://api.resend.com',
+    ],
+
     'mcp' => [
         // Origens de navegador autorizadas a chamar /mcp.php. Clientes MCP
         // (Claude Code, mcp-remote) não enviam Origin; deixe vazio.
